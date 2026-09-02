@@ -60,8 +60,7 @@ options:
   mac_address:
     description:
       - MAC address of the NIC that should be altered, if a MAC address is not supplied a new nic will be created.
-      - Matching is case-sensitive; use the same MAC address case as reported by VMware to target an existing NIC.
-      - If the case does not match, the module can treat the adapter as missing and attempt to create a new NIC.
+      - Matching existing NICs is case-insensitive.
       - Required when O(state=absent).
     type: str
   label:
@@ -303,6 +302,17 @@ class PyVmomiHelper(PyVmomi):
         self.change_detected = False
         self.device_helper = PyVmomiDeviceHelper(self.module)
 
+    def _normalize_mac(self, mac_address):
+        '''
+        Normalize a MAC address for case-insensitive comparison.
+        :param mac_address: MAC address string or None
+        :return: lowercase MAC address or None
+        :rtype: str or None
+        '''
+        if mac_address is None:
+            return None
+        return mac_address.lower()
+
     def _get_network_object(self, vm_obj):
         '''
         return network object matching given parameters
@@ -527,7 +537,7 @@ class PyVmomiHelper(PyVmomi):
                 nic_spec.device.deviceInfo = vim.Description(
                     label=label
                 )
-            if mac_address and mac_address != nic_obj.macAddress:
+            if mac_address and self._normalize_mac(mac_address) != self._normalize_mac(nic_obj.macAddress):
                 nic_spec.device.addressType = 'manual'
                 nic_spec.device.macAddress = mac_address
 
@@ -600,7 +610,7 @@ class PyVmomiHelper(PyVmomi):
         network_info = copy.deepcopy(nic_info)
 
         for nic_obj in nic_obj_lst:
-            if nic_obj.macAddress == mac_address:
+            if self._normalize_mac(nic_obj.macAddress) == self._normalize_mac(mac_address):
                 if self.module.check_mode:
                     changed = True
                     for nic in nic_info:
@@ -653,6 +663,7 @@ class PyVmomiHelper(PyVmomi):
         force = self.params['force']
         label = self.params['label']
         mac_address = self.params['mac_address']
+        mac_address_normalized = self._normalize_mac(mac_address)
         network_name = self.params['network_name']
         switch = self.params['switch']
         vlan_id = self.params['vlan_id']
@@ -674,7 +685,7 @@ class PyVmomiHelper(PyVmomi):
         network_obj = self._get_network_object(vm_obj)
         nic_info, nic_obj_lst = self._get_nics_from_vm(vm_obj)
         label_lst = [d.get('label') for d in nic_info]
-        mac_addr_lst = [d.get('mac_address') for d in nic_info]
+        mac_addr_lst = [self._normalize_mac(d.get('mac_address')) for d in nic_info]
         vlan_id_lst = [d.get('vlan_id') for d in nic_info]
         network_name_lst = [d.get('network_name') for d in nic_info]
 
@@ -698,9 +709,9 @@ class PyVmomiHelper(PyVmomi):
         for nic in nic_info:
             diff['before'].update({nic.get('mac_address'): copy.copy(nic)})
 
-        if (mac_address and mac_address in mac_addr_lst) or (label and label in label_lst):
+        if (mac_address and mac_address_normalized in mac_addr_lst) or (label and label in label_lst):
             for nic_obj in nic_obj_lst:
-                if (mac_address and nic_obj.macAddress == mac_address) or (label and label == nic_obj.deviceInfo.label):
+                if (mac_address and self._normalize_mac(nic_obj.macAddress) == mac_address_normalized) or (label and label == nic_obj.deviceInfo.label):
                     device_spec = self._new_nic_spec(vm_obj, nic_obj)
 
             # fabricate diff for check_mode
@@ -708,7 +719,7 @@ class PyVmomiHelper(PyVmomi):
                 for nic in nic_info:
                     nic_mac = nic.get('mac_address')
                     nic_label = nic.get('label')
-                    if nic_mac == mac_address or nic_label == label:
+                    if (mac_address and self._normalize_mac(nic_mac) == mac_address_normalized) or (label and nic_label == label):
                         diff['after'][nic_mac] = copy.deepcopy(nic)
                         diff['after'][nic_mac].update({'switch': switch or nic['switch']})
                         if network_obj:
@@ -721,7 +732,7 @@ class PyVmomiHelper(PyVmomi):
                     else:
                         diff['after'].update({nic_mac: copy.deepcopy(nic)})
 
-        if (not mac_address or mac_address not in mac_addr_lst) and (not label or label not in label_lst):
+        if (not mac_address or mac_address_normalized not in mac_addr_lst) and (not label or label not in label_lst):
             device_spec = self._new_nic_spec(vm_obj, None)
             device_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
             if self.module.check_mode:

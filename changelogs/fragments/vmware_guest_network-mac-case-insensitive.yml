@@ -1,0 +1,2 @@
+bugfixes:
+  - vmware_guest_network - match existing NICs by MAC address case-insensitively so a difference in hex letter case no longer causes a new adapter to be created.

@@ -210,6 +210,25 @@
 
 - debug: var=enable_directpath_io
 
+- name: reconfigure existing NIC using a different MAC address case
+  community.vmware.vmware_guest_network:
+    validate_certs: false
+    hostname: "{{ vcenter_hostname }}"
+    username: "{{ vcenter_username }}"
+    password: "{{ vcenter_password }}"
+    name: "test_vm1"
+    state: present
+    mac_address: "AA:50:56:58:59:61"
+    network_name: "VM Network"
+  register: reconfig_mac_case
+
+- debug: var=reconfig_mac_case
+
+- name: assert existing NIC was matched regardless of MAC address case
+  assert:
+    that:
+      - reconfig_mac_case.network_info | length | int == netadapter_num | int + 1
+
 - name: disconnect one specified network adapter
   community.vmware.vmware_guest_network:
     validate_certs: false
